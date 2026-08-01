@@ -1,0 +1,124 @@
+# Velorn - project aliases and functions
+# All commands defined here, sourced by .salias
+# Run 'help' to see all available commands
+
+# ── Environment ──
+set -gx COMFY_SERVICE 'comfyui.service'
+set -gx COMFY_PORT 8188
+set -gx VELORN_MCP_PORT 19790
+
+# ── Node Environment ──
+alias rmenv='rm -rf node_modules'
+
+function install
+    clear
+    npm install
+    fixelectron
+end
+
+# electron 28's bundled extract-zip silently aborts after the first zip entry on
+# Node 26 — the download succeeds and passes checksum, but dist/ is left empty
+# and every electron run dies with a confusing ENOENT. Extract it ourselves.
+function fixelectron --description 'Extract the Electron binary if npm install left dist/ empty'
+    if test -x node_modules/electron/dist/electron
+        echo "Electron ready: "(./node_modules/.bin/electron --version 2>/dev/null)
+        return 0
+    end
+    set -l ver (node -p "require('./node_modules/electron/package.json').version" 2>/dev/null)
+    if test -z "$ver"
+        echo "electron is not installed — run 'install' first."
+        return 1
+    end
+    set -l zip (find ~/.cache/electron -name "electron-v$ver-linux-x64.zip" -type f 2>/dev/null | head -1)
+    if test -z "$zip"
+        echo "Downloading electron v$ver ..."
+        node ./node_modules/electron/install.js
+        set zip (find ~/.cache/electron -name "electron-v$ver-linux-x64.zip" -type f 2>/dev/null | head -1)
+    end
+    if test -z "$zip"
+        echo "Could not obtain electron-v$ver-linux-x64.zip"
+        return 1
+    end
+    rm -rf node_modules/electron/dist
+    mkdir -p node_modules/electron/dist
+    unzip -q "$zip" -d node_modules/electron/dist
+    # No trailing newline: electron/index.js reads path.txt raw and spawns it.
+    printf 'electron' > node_modules/electron/path.txt
+    chmod +x node_modules/electron/dist/electron
+    echo "Electron ready: "(./node_modules/.bin/electron --version 2>/dev/null)
+end
+
+# ── Help ──
+# Relative path: .salias_f is always sourced with the project dir as PWD.
+function help
+    clear
+    sed -e "s/COMFY_PORT/$COMFY_PORT/g" -e "s/VELORN_MCP_PORT/$VELORN_MCP_PORT/g" ./.salias_help.txt
+end
+
+# ── Velorn ──
+# Velorn is useless for Generate/Create without ComfyUI on $COMFY_PORT, so 'run'
+# brings the service up first rather than failing the connection test later.
+function run --description 'Start Velorn (Electron dev), ensuring ComfyUI is up first'
+    if not test -x node_modules/electron/dist/electron
+        fixelectron; or return 1
+    end
+    if not comfyup
+        echo "Starting Velorn anyway — Generate and Create will not work until ComfyUI is up."
+    end
+    npm run electron:dev
+end
+
+alias dev='npm run dev'
+
+function build
+    clear
+    npm run build
+end
+
+alias pack='npm run electron:pack'
+alias dist='npm run electron:build:linux'
+alias starterpack='npm run starter-pack:build'
+alias rmbuild='rm -rf dist release'
+
+# ── ComfyUI (systemd user unit) ──
+function comfyup --description 'Start ComfyUI if stopped, then wait until it answers'
+    if not systemctl --user is-active --quiet $COMFY_SERVICE
+        echo "ComfyUI is stopped — starting $COMFY_SERVICE ..."
+        systemctl --user start $COMFY_SERVICE
+    end
+    # is-active goes green well before the HTTP server binds, so poll the port.
+    for i in (seq 1 30)
+        if curl -sf -o /dev/null --max-time 2 http://127.0.0.1:$COMFY_PORT/system_stats
+            echo "ComfyUI ready on 127.0.0.1:$COMFY_PORT"
+            return 0
+        end
+        sleep 1
+    end
+    echo "ComfyUI did not answer on 127.0.0.1:$COMFY_PORT after 30s (check: cstatus / clog)"
+    return 1
+end
+
+function cping --description 'Check whether ComfyUI is responding'
+    if curl -sf -o /dev/null --max-time 3 http://127.0.0.1:$COMFY_PORT/system_stats
+        echo "ComfyUI: up on 127.0.0.1:$COMFY_PORT"
+    else
+        echo "ComfyUI: not responding on 127.0.0.1:$COMFY_PORT"
+        return 1
+    end
+end
+
+alias cstart='systemctl --user start $COMFY_SERVICE'
+alias cstop='systemctl --user stop $COMFY_SERVICE'
+alias crestart='systemctl --user restart $COMFY_SERVICE'
+alias cstatus='systemctl --user status $COMFY_SERVICE --no-pager'
+alias clog='journalctl --user -u $COMFY_SERVICE --no-pager -n 50'
+alias clogf='journalctl --user -u $COMFY_SERVICE -f'
+
+# ── Velorn MCP server ──
+function mcpstat --description "Check whether Velorn's MCP server is listening"
+    if ss -ltn 2>/dev/null | grep -q ":$VELORN_MCP_PORT "
+        echo "Velorn MCP: listening on 127.0.0.1:$VELORN_MCP_PORT"
+    else
+        echo "Velorn MCP: not listening (start Velorn with 'run')"
+    end
+end

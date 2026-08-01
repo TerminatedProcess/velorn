@@ -1,0 +1,23 @@
+NODE ENVIRONMENT - install, rmenv, fixelectron
+
+VELORN
+  run               Start Velorn (Electron dev), starting ComfyUI first if stopped
+  dev               Vite browser-only server (most features need Electron)
+  build             vite build -> dist/  (the pre-PR check)
+  pack              Unpacked electron-builder output, fast packaging check
+  dist              Build Linux AppImage + deb -> release/
+  starterpack       Regenerate docs/workflow-starter-pack/
+  rmbuild           Remove dist/ and release/
+
+COMFYUI (port COMFY_PORT)
+  comfyup           Start ComfyUI if stopped and wait until the port answers
+  cping             Check whether ComfyUI is responding
+  cstart            Start comfyui.service
+  cstop             Stop comfyui.service
+  crestart          Restart comfyui.service
+  cstatus           Show systemd status
+  clog              Last 50 journal lines
+  clogf             Follow the journal
+
+VELORN MCP (port VELORN_MCP_PORT)
+  mcpstat           Check whether Velorn's MCP server is listening
